@@ -3,53 +3,27 @@
 #include <fstream>
 #include <util/tga_image.h>
 
-TgaImage::TgaImage() : width_(0), height_(0), bytespp_(0), data_(nullptr) {}
-TgaImage::TgaImage(int width, int height, int bytespp)
-    : width_(width), height_(height), bytespp_(bytespp), data_(nullptr) {
-    uint32_t nbytes = width_ * height_ * bytespp_;
-    data_ = new uint8_t[nbytes];
-    std::memset(data_, 0, nbytes);
-}
-
-void swap(TgaImage &lhs, TgaImage &rhs) noexcept {
-    using std::swap;
-    swap(lhs.data_, rhs.data_);
-    swap(lhs.width_, rhs.width_);
-    swap(lhs.height_, rhs.height_);
-    swap(lhs.bytespp_, rhs.bytespp_);
-}
-
-TgaImage::TgaImage(const TgaImage &tga_image)
-    : width_(tga_image.width_), height_(tga_image.height_),
-      bytespp_(tga_image.bytespp_), data_(nullptr) {
-    uint32_t nbytes = width_ * height_ * bytespp_;
-    data_ = new uint8_t[nbytes];
-    std::memcpy(data_, tga_image.data_, nbytes);
-}
-
-TgaImage::TgaImage(TgaImage &&tga_image) noexcept
-    : width_(tga_image.width_), height_(tga_image.height_),
-      bytespp_(tga_image.bytespp_), data_(tga_image.data_) {
-    tga_image.data_ = nullptr;
-}
-
-TgaImage &TgaImage::operator=(TgaImage tga_image) {
-    swap(*this, tga_image);
-    return *this;
-}
+TgaImage::TgaImage(const int width, const int height, const int bytespp)
+    : width_(width), height_(height), bytespp_(bytespp),
+      data_(width * height * bytespp, 0) {}
 
 TgaColor TgaImage::get_pixel(int x, int y) const {
-    if (!data_ || x < 0 || y < 0 || x >= width_ || y >= height_)
-        return TgaColor();
+    if (!data_.size() || x < 0 || y < 0 || x >= width_ || y >= height_)
+        return {};
 
-    return {data_ + (y * width_ + x) * bytespp_, bytespp_};
+    TgaColor ret_color = {0, 0, 0, 0, bytespp_};
+
+    const std::uint8_t *pdata = data_.data() + (y * width_ + x) * bytespp_;
+    for (int i = 0; i < bytespp_; ++i) ret_color[i] = pdata[i];
+
+    return ret_color;
 }
 
 bool TgaImage::set_pixel(int x, int y, const TgaColor &tga_color) {
-    if (!data_ || x < 0 || y < 0 || x >= width_ || y >= height_)
+    if (!data_.size() || x < 0 || y < 0 || x >= width_ || y >= height_)
         return false;
 
-    std::memcpy(data_ + (y * width_ + x) * bytespp_, tga_color.raw, bytespp_);
+    std::memcpy(data_.data() + (y * width_ + x) * bytespp_, tga_color.bgra, bytespp_);
     return true;
 }
 
@@ -61,7 +35,7 @@ bool TgaImage::read_tga_file(const std::string &filename) {
     }
 
     TgaHeader header;
-    in.read((char *)&header, sizeof(header));
+    in.read(reinterpret_cast<char *>(&header), sizeof(header));
     if (!in.good()) {
         std::cerr << "An error occured while reading the header.\n";
         return false;
@@ -84,11 +58,9 @@ bool TgaImage::read_tga_file(const std::string &filename) {
     }
 
     uint32_t nbytes = width_ * height_ * bytespp_;
-    if (data_)
-        delete[] data_;
-    data_ = new uint8_t[nbytes];
+    data_ = std::vector<std::uint8_t>(nbytes, 0);
     if (header.image_type == 2 || header.image_type == 3) {
-        in.read((char *)data_, nbytes);
+        in.read(reinterpret_cast<char *>(data_.data()), nbytes);
         if (!in.good()) {
             std::cerr << "An error occured while reading the image data.\n";
             return false;
@@ -138,7 +110,7 @@ bool TgaImage::load_rle_data(std::ifstream &in) {
             }
 
             nbytes = packet_header * bytespp_;
-            in.read((char *)(data_ + byte_count), nbytes);
+            in.read(reinterpret_cast<char *>(data_.data() + byte_count), nbytes);
             if (!in.good())
                 return false;
 
@@ -150,11 +122,11 @@ bool TgaImage::load_rle_data(std::ifstream &in) {
                 return false;
             }
 
-            in.read((char *)color_buffer.raw, bytespp_);
+            in.read(reinterpret_cast<char *>(color_buffer.bgra), bytespp_);
             if (!in.good())
                 return false;
             for (int i = 0; i < packet_header; ++i, byte_count += bytespp_) {
-                std::memcpy(data_ + byte_count, color_buffer.raw, bytespp_);
+                std::memcpy(data_.data() + byte_count, color_buffer.bgra, bytespp_);
             }
         }
 
@@ -165,19 +137,11 @@ bool TgaImage::load_rle_data(std::ifstream &in) {
 }
 
 bool TgaImage::flip_horizontally() {
-    if (!data_)
-        return false;
-
-    TgaColor color_buffer;
     for (int i = 0; i < height_; ++i) {
-        uint8_t *row = data_ + i * width_ * bytespp_;
-        int mid = (width_ - 1) / 2;
-        for (int j = 0; j <= mid; ++j) {
-            int lhs_offset = j * bytespp_;
-            int rhs_offset = (width_ - 1 - j) * bytespp_;
-            std::memcpy(color_buffer.raw, row + lhs_offset, bytespp_);
-            std::memcpy(row + lhs_offset, row + rhs_offset, bytespp_);
-            std::memcpy(row + rhs_offset, color_buffer.raw, bytespp_);
+        for (int j = 0; j < width_ / 2; ++j) {
+            for (int k = 0; k < bytespp_; ++k) {
+                std::swap(data_[(i * width_ + j) * bytespp_ + k], data_[(i * width_ + width_ - 1 - j) * bytespp_ + k]);
+            }
         }
     }
 
@@ -185,28 +149,17 @@ bool TgaImage::flip_horizontally() {
 }
 
 bool TgaImage::flip_vertically() {
-    if (!data_)
-        return false;
-
-    int row_bytes = width_ * bytespp_;
-    uint8_t *tmp_row = new uint8_t[row_bytes];
-
-    int mid = (height_ - 1) / 2;
-    for (int i = 0; i <= mid; ++i) {
-        int lhs_offset = i * row_bytes;
-        int rhs_offset = (height_ - 1 - i) * row_bytes;
-        std::memcpy(tmp_row, data_ + lhs_offset, row_bytes);
-        std::memcpy(data_ + lhs_offset, data_ + rhs_offset, row_bytes);
-        std::memcpy(data_ + rhs_offset, tmp_row, row_bytes);
+    for (int i = 0; i < width_; ++i) {
+        for (int j = 0; j < height_ / 2; ++j) {
+            for (int k = 0; k < bytespp_; ++k) {
+                std::swap(data_[(j * width_ + i) * bytespp_ + k], data_[((height_ - 1 - j) * width_ + i) * bytespp_ + k]);
+            }
+        }
     }
-
     return true;
 }
 
-bool TgaImage::write_tga_file(const std::string &filename, bool is_rle) const {
-    if (!data_)
-        return false;
-
+bool TgaImage::write_tga_file(const std::string &filename, const bool is_v_flip, const bool is_rle) const {
     std::ofstream out(filename, std::ios::binary);
 
     if (!out.is_open()) {
@@ -220,8 +173,8 @@ bool TgaImage::write_tga_file(const std::string &filename, bool is_rle) const {
     tga_header.image_width = width_;
     tga_header.image_height = height_;
     tga_header.pixel_depth = bytespp_ << 3;
-    tga_header.image_descriptor = 0x20; // top-left origin
-    out.write((char *)&tga_header, sizeof(tga_header));
+    tga_header.image_descriptor = is_v_flip ? 0x00 : 0x20; // bottom-left origin or top-left origin
+    out.write(reinterpret_cast<char *>(&tga_header), sizeof(tga_header));
     if (!out.good()) {
         std::cerr << "An error occured while writing the tga header.\n";
         return false;
@@ -234,7 +187,7 @@ bool TgaImage::write_tga_file(const std::string &filename, bool is_rle) const {
             return false;
         }
     } else {
-        out.write((char *)data_, width_ * height_ * bytespp_);
+        out.write(reinterpret_cast<const char *>(data_.data()), width_ * height_ * bytespp_);
         if (!out.good()) {
             std::cerr << "An error occured while writing the image data.\n";
             return false;
@@ -281,7 +234,7 @@ bool TgaImage::save_rle_data(std::ofstream &out) const {
         if (!out.good())
             return false;
 
-        out.write((char *)&data_[cur_pixel * bytespp_],
+        out.write(reinterpret_cast<const char *>(data_.data() + cur_pixel * bytespp_),
                   is_raw ? run_length * bytespp_ : bytespp_);
         if (!out.good())
             return false;
@@ -290,62 +243,4 @@ bool TgaImage::save_rle_data(std::ofstream &out) const {
     }
 
     return true;
-}
-
-// scale width_ x height_ -> new_width x new_height
-// 最邻近插值
-// 逆向映射(目标图像遍历)
-// 整数误差累积法替代浮点数计算, 提高性能
-bool TgaImage::scale(int new_width, int new_height) {
-    if (new_width <= 0 || new_height <= 0 || !data_)
-        return false;
-
-    uint8_t *new_data = new uint8_t[new_width * new_height * bytespp_];
-
-    int erry = -height_;
-    int y = 0, new_y = 0;
-    int errx = -width_;
-    int x = 0, new_x = 0;
-
-    int new_width_bytes = new_width * bytespp_;
-    int new_y_offset_bytes = 0;
-    int new_x_offset_bytes = 0;
-
-    for (erry = -height_, y = 0, new_y = 0, new_y_offset_bytes = 0;
-         new_y < new_height; ++new_y, new_y_offset_bytes += new_width_bytes) {
-        erry += height_;
-        // 行复制优化
-        // 当目标图像的本行与上一行映射到源图像的不同行时, 逐像素复制本行
-        // 否则整行复制目标图像的上一行到本行
-        if (y != height_ - 1 && erry >= new_height) {
-            y += erry / new_height;
-            y = std::min(y, height_ - 1);
-            erry %= new_height;
-
-            for (errx = -width_, x = 0, new_x = 0, new_x_offset_bytes = 0;
-                 new_x < new_width; ++new_x, new_x_offset_bytes += bytespp_) {
-                errx += width_;
-                x += errx / new_width;
-                x = std::min(x, width_ - 1);
-                errx %= new_width;
-                memcpy(new_data + new_y_offset_bytes + new_x_offset_bytes,
-                       data_ + (y * width_ + x) * bytespp_, bytespp_);
-            }
-        } else {
-            memcpy(new_data + new_y_offset_bytes - new_width_bytes,
-                   new_data + new_y_offset_bytes, new_width_bytes);
-        }
-    }
-
-    delete[] data_;
-    data_ = new_data;
-    width_ = new_width;
-    height_ = new_height;
-
-    return true;
-}
-
-void TgaImage::clear() {
-    if (data_)
-        std::memset(data_, 0, width_ * height_ * bytespp_);
 }
