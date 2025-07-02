@@ -1,4 +1,5 @@
 #include <util/tga_image.h>
+#include <iostream>
 
 constexpr TgaColor white = {255, 255, 255, 255};
 constexpr TgaColor blue = {255, 0, 0, 255};
