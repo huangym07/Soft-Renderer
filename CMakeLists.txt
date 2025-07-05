@@ -18,7 +18,7 @@ endif()
 
 message(STATUS "配置 ${CMAKE_BUILD_TYPE} 构建")
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_options(-O3 -DNDEBUG)
+    add_compile_options(-O3 -DNDEBUG -Wno-narrowing)
 elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_options(-O0 -g)
 endif()
