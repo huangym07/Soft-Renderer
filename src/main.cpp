@@ -1,10 +1,15 @@
+#include "util/model.h"
 #include <cstdlib>
+#include <tuple>
 #include <util/tga_image.h>
 #include <cmath>
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <limits>
+
+constexpr int width = 800;
+constexpr int height = 800;
 
 constexpr TgaColor white = {255, 255, 255, 255};
 constexpr TgaColor blue = {255, 0, 0, 255};
@@ -68,90 +73,37 @@ void line_draw(int ax, int ay, int bx, int by, TgaImage &frame_buffer, const Tga
     }
 }
 
-template<typename T>
-struct Point {
-    T x = 0, y = 0;
-};
-
-float linear_interpolate(float x, float old_min_x, float old_max_x, float new_min_x, float new_max_x) {
-    float ret = new_min_x + (x - old_min_x) * (new_max_x - new_min_x) / (old_max_x - old_min_x);
-
-    // static int count = 1;
-
-    // if (count <= 10) {
-    //     std::string cord = count % 2 ? "x" : "y";
-    //     std::cerr << __PRETTY_FUNCTION__ << " " << cord << ": " << x << " " << old_min_x << " " << old_max_x << " " << new_min_x << " " << new_max_x << " " << ret << '\n';
-    //     count++;
-    // }
-
-    return ret;
+float linear_interpolate(float value, float old_min_value, float old_max_value, float new_min_value, float new_max_value) {
+    return new_min_value + (value - old_min_value) * (new_max_value - new_min_value) / (old_max_value - old_min_value);
 }
 
-// 读取 obj 模型文件
-// 生成线框图
-void obj_draw(const std::string &filename, TgaImage &frame_buffer, const TgaColor &color) {
-    std::ifstream in(filename);
-    if (!in.is_open()) {
-        std::cerr << "Failed to open " << filename << '\n';
-        return;
-    }
-
-    std::string line;
-    std::vector<Point<float>> pfvec;
-    float max_x = std::numeric_limits<float>::min(), min_x = std::numeric_limits<float>::max();
-    float max_y = max_x, min_y = min_x;
-    while (std::getline(in, line)) {
-        std::stringstream ss(line);
-
-        std::string word;
-        ss >> word;
-        if (word == "v") {
-            float x, y;
-            ss >> x >> y;
-            pfvec.push_back({x, y});
-
-            // 计算坐标极差作为模型空间的宽高, 以便缩放成图像大小
-            // 注意, 不要对 x, y 四舍五入取整后再计算极差
-            // 因为模型空间和图像中坐标差距占极差的比例是相同的
-            // 坐标差距可能很小, 比如是 0.001 级别的, 极差可能 0.01 级别
-            // 坐标差距占极差的 1/10, 导致图像中坐标差距占图像的 1/10
-            // 如果四舍五入取整后计算极差, 会放大极差, 比如极差放大成 2
-            // 坐标差距占极差的 1/2000, 导致图像中坐标差距占图像的 1/2000
-            // 这会使图像中所有点非常接近, 看不出模型的样子
-            max_x = std::max(max_x, x);
-            max_y = std::max(max_y, y);
-            min_x = std::min(min_x, x);
-            min_y = std::min(min_y, y);
-        } else if(word == "f") {
-            std::string segment;
-            std::vector<int> indexs;
-            while (ss >> segment) {
-                std::stringstream seg_ss(segment);
-                int index;
-                seg_ss >> index;
-                indexs.push_back(index);
-            }
-            for (int i = 0; i < 3; ++i) {
-                int id1 = indexs[i] - 1, id2 = indexs[(i + 1) % 3] - 1;
-                int ax = std::round(linear_interpolate(pfvec[id1].x, min_x, max_x, 0, frame_buffer.get_width() - 1));
-                int ay = std::round(linear_interpolate(pfvec[id1].y, min_y, max_y, 0, frame_buffer.get_height() - 1));
-                int bx = std::round(linear_interpolate(pfvec[id2].x, min_x, max_x, 0, frame_buffer.get_width() - 1));
-                int by = std::round(linear_interpolate(pfvec[id2].y, min_y, max_y, 0, frame_buffer.get_height() - 1));
-                line_draw(ax, ay, bx, by, frame_buffer, color);
-            }
-        }
-    }
-
-    std::cerr << "obj x: " << min_x << " " << max_x << " and y: " << min_y << " " << max_y << '\n';
+std::tuple<int, int> viewport_trans(const Vec3f &point, const int width, const int height) {
+    return {(point.x + 1.f) * width / 2, (point.y + 1.f) * height / 2};
 }
 
 int main(int argc, char* argv[]) {
-    constexpr int width = 800;
-    constexpr int height = 1000;
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " Path/to/filename.obj\n";
+        return 1;
+    }
 
     TgaImage frame_buffer(width, height, TgaImage::RGB);
 
-    obj_draw(argv[1], frame_buffer, red);
+    Model model(argv[1]);
+
+    for (int i = 0; i < model.num_faces(); ++i) {
+        auto [ax, ay] = viewport_trans(model.vertex(i, 0), width, height);
+        auto [bx, by] = viewport_trans(model.vertex(i, 1), width, height);
+        auto [cx, cy] = viewport_trans(model.vertex(i, 2), width, height);
+
+        line_draw(ax, ay, bx, by, frame_buffer, red);
+        line_draw(bx, by, cx, cy, frame_buffer, red);
+        line_draw(cx, cy, ax, ay, frame_buffer, red);
+
+        frame_buffer.set_pixel(ax, ay, white);
+        frame_buffer.set_pixel(bx, by, white);
+        frame_buffer.set_pixel(cx, cy, white);
+    }
 
     frame_buffer.write_tga_file("frame_buffer.tga");
 

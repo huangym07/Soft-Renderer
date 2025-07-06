@@ -31,6 +31,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)  # 静态库单独�
 
 set(RENDERER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/util/tga_image.cpp
+    ${CMAKE_SOURCE_DIR}/src/util/model.cpp
     ${CMAKE_SOURCE_DIR}/src/main.cpp
 )
 set(RENDERER_INCLUDE

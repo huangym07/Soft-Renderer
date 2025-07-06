@@ -1,5 +1,4 @@
-#ifndef __TGA_IMAGE_H__
-#define __TGA_IMAGE_H__
+#pragma once
 
 #include <cstdint>
 #include <cstring>
@@ -86,5 +85,3 @@ class TgaImage {
     // flip vertically image data
     bool flip_vertically();
 };
-
-#endif //__TGA_IMAGE_H__
