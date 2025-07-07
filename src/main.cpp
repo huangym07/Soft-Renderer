@@ -1,19 +1,19 @@
-#include "util/model.h"
-#include <cstdlib>
-#include <tuple>
-#include <util/tga_image.h>
+#include "model.h"
+#include "tga_image.h"
 #include <cmath>
-#include <string>
+#include <cstdlib>
 #include <fstream>
-#include <sstream>
 #include <limits>
+#include <sstream>
+#include <string>
+#include <tuple>
 
 constexpr int width = 800;
 constexpr int height = 800;
 
 constexpr TgaColor white = {255, 255, 255, 255};
 constexpr TgaColor blue = {255, 0, 0, 255};
-constexpr TgaColor green = {0,255, 0, 255};
+constexpr TgaColor green = {0, 255, 0, 255};
 constexpr TgaColor red = {0, 0, 255, 255};
 
 // 原始方案
@@ -35,20 +35,23 @@ constexpr TgaColor red = {0, 0, 255, 255};
 // ierror -= 2 * (bx - ax) * (ierror > bx - ax)
 // 性能测试:
 // 测试目的 对比 Bresenham 算法与浮点算法的性能
-// 处理器	13th Gen Intel(R) Core(TM) i9-13900HX，2200 Mhz，24 个内核，32 个逻辑处理器
-// 操作系统 Windows 11
-// 编译环境 (MSYS2) GNU 15.1.0, -std=c++17 -O3
+// 处理器	13th Gen Intel(R) Core(TM) i9-13900HX，2200 Mhz，24 个内核，32
+// 个逻辑处理器 操作系统 Windows 11 编译环境 (MSYS2) GNU 15.1.0, -std=c++17 -O3
 // 测试数据 1 << 24 条线段, 坐标范围在 [0, 64)
-// 计时方式: 
+// 计时方式:
 // auto start = std::chrono::high_resolution_clock::now();
 // // 测试代码
 // auto end = std::chrono::high_resolution_clock::now();
-// auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-// 测试结果 Bresenham's Line Draw Algorithm 比浮点数增量的四舍五入要快 100000 微秒
-void line_draw(int ax, int ay, int bx, int by, TgaImage &frame_buffer, const TgaColor &color) {
-    // std::cerr << __PRETTY_FUNCTION__ << ": " << ax << " " << ay << " " << bx << " " << by << '\n';
+// auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end -
+// start).count(); 测试结果 Bresenham's Line Draw Algorithm
+// 比浮点数增量的四舍五入要快 100000 微秒
+void line_draw(int ax, int ay, int bx, int by, TgaImage &frame_buffer,
+               const TgaColor &color) {
+    // std::cerr << __PRETTY_FUNCTION__ << ": " << ax << " " << ay << " " << bx
+    // << " " << by << '\n';
 
-    bool steep = std::abs(ax - bx) < std::abs(ay - by); // x and y are changed when true
+    bool steep =
+        std::abs(ax - bx) < std::abs(ay - by); // x and y are changed when true
     if (steep) {
         std::swap(ax, ay);
         std::swap(bx, by);
@@ -73,15 +76,19 @@ void line_draw(int ax, int ay, int bx, int by, TgaImage &frame_buffer, const Tga
     }
 }
 
-float linear_interpolate(float value, float old_min_value, float old_max_value, float new_min_value, float new_max_value) {
-    return new_min_value + (value - old_min_value) * (new_max_value - new_min_value) / (old_max_value - old_min_value);
+float linear_interpolate(float value, float old_min_value, float old_max_value,
+                         float new_min_value, float new_max_value) {
+    return new_min_value + (value - old_min_value) *
+                               (new_max_value - new_min_value) /
+                               (old_max_value - old_min_value);
 }
 
-std::tuple<int, int> viewport_trans(const Vec3f &point, const int width, const int height) {
+std::tuple<int, int> viewport_trans(const Vec3f &point, const int width,
+                                    const int height) {
     return {(point.x + 1.f) * width / 2, (point.y + 1.f) * height / 2};
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " Path/to/filename.obj\n";
         return 1;

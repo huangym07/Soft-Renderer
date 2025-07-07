@@ -1,6 +1,6 @@
 #pragma once
 
-#include <util/geometry.h>
+#include "geometry.h"
 #include <vector>
 
 class Model {
@@ -10,7 +10,7 @@ class Model {
   public:
     Model(const std::string &filename);
     int num_vertices() const { return vertices_.size(); } // 顶点个数
-    int num_faces() const { return faces_.size() / 3; }       // 面的个数
+    int num_faces() const { return faces_.size() / 3; }   // 面的个数
     // 0 <= vertex_index < num_vertices()
     Vec3f vertex(int vertex_index) { return vertices_[vertex_index]; }
     // 0 <= face_index < nums_faces, 0 <= vertex_nth_of_face < 3

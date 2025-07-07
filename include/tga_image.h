@@ -8,7 +8,7 @@
 // tga 格式文件的头部
 // 详细信息参考 https://en.wikipedia.org/wiki/Truevision_TGA#Header
 // 为了和外部二进制交互，禁用内存对齐
-#pragma pack(push, 1)
+#pragma pack(1)
 struct TgaHeader {
     std::uint8_t id_length = 0;
     std::uint8_t color_map_type = 0;
@@ -27,7 +27,7 @@ struct TgaHeader {
     std::uint8_t pixel_depth = 0; // the bits one pixel has
     std::uint8_t image_descriptor = 0;
 };
-#pragma pack(pop)
+#pragma pack()
 
 static_assert(sizeof(TgaHeader) == 18, "TgaHeader layout mismatch!");
 

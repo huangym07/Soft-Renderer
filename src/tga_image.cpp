@@ -1,7 +1,7 @@
+#include "tga_image.h"
 #include <cstdint>
 #include <cstring>
 #include <fstream>
-#include <util/tga_image.h>
 
 TgaImage::TgaImage(const int width, const int height, const int bytespp)
     : width_(width), height_(height), bytespp_(bytespp),
@@ -14,7 +14,8 @@ TgaColor TgaImage::get_pixel(int x, int y) const {
     TgaColor ret_color = {0, 0, 0, 0, bytespp_};
 
     const std::uint8_t *pdata = data_.data() + (y * width_ + x) * bytespp_;
-    for (int i = 0; i < bytespp_; ++i) ret_color[i] = pdata[i];
+    for (int i = 0; i < bytespp_; ++i)
+        ret_color[i] = pdata[i];
 
     return ret_color;
 }
@@ -23,7 +24,8 @@ bool TgaImage::set_pixel(int x, int y, const TgaColor &tga_color) {
     if (!data_.size() || x < 0 || y < 0 || x >= width_ || y >= height_)
         return false;
 
-    std::memcpy(data_.data() + (y * width_ + x) * bytespp_, tga_color.bgra, bytespp_);
+    std::memcpy(data_.data() + (y * width_ + x) * bytespp_, tga_color.bgra,
+                bytespp_);
     return true;
 }
 
@@ -110,7 +112,8 @@ bool TgaImage::load_rle_data(std::ifstream &in) {
             }
 
             nbytes = packet_header * bytespp_;
-            in.read(reinterpret_cast<char *>(data_.data() + byte_count), nbytes);
+            in.read(reinterpret_cast<char *>(data_.data() + byte_count),
+                    nbytes);
             if (!in.good())
                 return false;
 
@@ -126,7 +129,8 @@ bool TgaImage::load_rle_data(std::ifstream &in) {
             if (!in.good())
                 return false;
             for (int i = 0; i < packet_header; ++i, byte_count += bytespp_) {
-                std::memcpy(data_.data() + byte_count, color_buffer.bgra, bytespp_);
+                std::memcpy(data_.data() + byte_count, color_buffer.bgra,
+                            bytespp_);
             }
         }
 
@@ -140,7 +144,8 @@ bool TgaImage::flip_horizontally() {
     for (int i = 0; i < height_; ++i) {
         for (int j = 0; j < width_ / 2; ++j) {
             for (int k = 0; k < bytespp_; ++k) {
-                std::swap(data_[(i * width_ + j) * bytespp_ + k], data_[(i * width_ + width_ - 1 - j) * bytespp_ + k]);
+                std::swap(data_[(i * width_ + j) * bytespp_ + k],
+                          data_[(i * width_ + width_ - 1 - j) * bytespp_ + k]);
             }
         }
     }
@@ -152,14 +157,17 @@ bool TgaImage::flip_vertically() {
     for (int i = 0; i < width_; ++i) {
         for (int j = 0; j < height_ / 2; ++j) {
             for (int k = 0; k < bytespp_; ++k) {
-                std::swap(data_[(j * width_ + i) * bytespp_ + k], data_[((height_ - 1 - j) * width_ + i) * bytespp_ + k]);
+                std::swap(
+                    data_[(j * width_ + i) * bytespp_ + k],
+                    data_[((height_ - 1 - j) * width_ + i) * bytespp_ + k]);
             }
         }
     }
     return true;
 }
 
-bool TgaImage::write_tga_file(const std::string &filename, const bool is_v_flip, const bool is_rle) const {
+bool TgaImage::write_tga_file(const std::string &filename, const bool is_v_flip,
+                              const bool is_rle) const {
     std::ofstream out(filename, std::ios::binary);
 
     if (!out.is_open()) {
@@ -173,7 +181,8 @@ bool TgaImage::write_tga_file(const std::string &filename, const bool is_v_flip,
     tga_header.image_width = width_;
     tga_header.image_height = height_;
     tga_header.pixel_depth = bytespp_ << 3;
-    tga_header.image_descriptor = is_v_flip ? 0x00 : 0x20; // bottom-left origin or top-left origin
+    tga_header.image_descriptor =
+        is_v_flip ? 0x00 : 0x20; // bottom-left origin or top-left origin
     out.write(reinterpret_cast<char *>(&tga_header), sizeof(tga_header));
     if (!out.good()) {
         std::cerr << "An error occured while writing the tga header.\n";
@@ -187,7 +196,8 @@ bool TgaImage::write_tga_file(const std::string &filename, const bool is_v_flip,
             return false;
         }
     } else {
-        out.write(reinterpret_cast<const char *>(data_.data()), width_ * height_ * bytespp_);
+        out.write(reinterpret_cast<const char *>(data_.data()),
+                  width_ * height_ * bytespp_);
         if (!out.good()) {
             std::cerr << "An error occured while writing the image data.\n";
             return false;
@@ -234,8 +244,9 @@ bool TgaImage::save_rle_data(std::ofstream &out) const {
         if (!out.good())
             return false;
 
-        out.write(reinterpret_cast<const char *>(data_.data() + cur_pixel * bytespp_),
-                  is_raw ? run_length * bytespp_ : bytespp_);
+        out.write(
+            reinterpret_cast<const char *>(data_.data() + cur_pixel * bytespp_),
+            is_raw ? run_length * bytespp_ : bytespp_);
         if (!out.good())
             return false;
 
