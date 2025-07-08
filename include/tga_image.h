@@ -1,8 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <cstring>
-#include <iostream>
+#include <string>
 #include <vector>
 
 // tga 格式文件的头部

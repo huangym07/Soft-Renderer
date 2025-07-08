@@ -1,6 +1,7 @@
 #include "tga_image.h"
 #include <cstdint>
 #include <cstring>
+#include <iostream>
 #include <fstream>
 
 TgaImage::TgaImage(const int width, const int height, const int bytespp)

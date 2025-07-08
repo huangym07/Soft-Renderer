@@ -1,12 +1,10 @@
 #include "model.h"
 #include "tga_image.h"
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
-#include <fstream>
-#include <limits>
-#include <sstream>
 #include <string>
-#include <tuple>
+#include <ctime>
 
 constexpr int width = 800;
 constexpr int height = 800;
@@ -83,9 +81,72 @@ float linear_interpolate(float value, float old_min_value, float old_max_value,
                                (old_max_value - old_min_value);
 }
 
-std::tuple<int, int> viewport_trans(const Vec3f &point, const int width,
+// 视口变换
+// NDC -> [0, width]x[0, height]x[0, 255]
+// NDC z 的变换用于可视化深度
+Vec3f viewport_trans(const Vec3f &point, const int width,
                                     const int height) {
-    return {(point.x + 1.f) * width / 2, (point.y + 1.f) * height / 2};
+    return {(point.x + 1.f) * (width - 1) / 2, (point.y + 1.f) * (height - 1) / 2, (point.z + 1.f) * 255.f / 2};
+}
+
+void triangle_rasterize(const Vec3f &p1, const Vec3f &p2, const Vec3f &p3, TgaImage &frame_buffer, TgaImage &z_buffer, const TgaColor &color) {
+    // 屏幕空间坐标
+    auto [ax, ay, az] = viewport_trans(p1, width, height);
+    auto [bx, by, bz] = viewport_trans(p2, width, height);
+    auto [cx, cy, cz] = viewport_trans(p3, width, height);
+
+    // 背面剔除
+    // 背面剔除应该使用世界坐标来做
+    // 但是目前渲染条件为: 右手坐标系, 使用的模型局部坐标均在 [-1, 1]^3, 直接拿来当作 NDC 坐标
+    // 右手坐标系, 如果使用的模型的局部坐标在 [-1, 1]^3, 那么将其直接拿来当作 NDC 坐标，这相当于自动进行了下面操作
+    // 1. 不进行模型变换，局部坐标就是世界坐标
+    // 2. 接着进行了相机在 z 轴某个能看清出模型全貌(就是和模型不重合)的位置, 
+    // x, y, z 轴与世界坐标的 x, y, z 轴相同方向的视图变换
+    // 3. 然后进行了选取合适的长方体进行正交投影变换得到 NDC, 
+    // 并且这个合适的长方体使得模型各点的 NDC 坐标与模型局部坐标相同的正交投影变换。
+    // 所以在目前相机看向 z 轴负方向且使用正交投影的特定条件下，
+    // 视口变换后的屏幕空间背面剔除是可行的，结果与世界坐标剔除等价。
+    // 这是因为正交投影保留了三维空间中 z 轴方向的朝向关系，
+    // 屏幕空间的顶点顺序和法向量分量可直接用于背面判定。
+    // 但需注意，当投影方式或观察方向改变时，仍需在三维坐标空间中执行标准背面剔除。
+
+    // 当前使用的模型按照右手坐标系, 逆时针绕序为正面
+    if (Vec3f{bx - ax, by - ay, 0}.cross({cx - ax, cy - ay, 0}).z < 0) return;
+
+    // 包围盒
+    int x_min = std::min(std::min(ax, bx), cx);
+    int x_max = std::max(std::max(ax, bx), cx);
+    x_max = std::min(x_max, frame_buffer.get_width() - 1); // x 坐标为 width 的点位于第 width - 1 列像素的右侧边界上
+    int y_min = std::min(std::min(ay, by), cy);
+    int y_max = std::max(std::max(ay, by), cy);
+    y_max = std::min(y_max, frame_buffer.get_height() - 1); // 同上
+
+    // 遍历包围盒内像素
+    for (int x = x_min; x <= x_max; ++x) {
+        for (int y = y_min; y <= y_max; ++y) {
+            // 计算重心坐标
+            auto [alpha, beta, gamma] = barycentric_coordinates(Vec2f{x + 0.5f, y + 0.5f}, Vec2f{ax, ay}, Vec2f{bx, by}, Vec2f{cx, cy});
+            // 退化三角形，停止光栅化
+            if (std::isnan(alpha)) return;
+            if (beta >= 0 && gamma >= 0 && beta + gamma <= 1) {
+                // 正交投影 可以使用屏幕空间的重心坐标插值 z
+                std::uint8_t z = static_cast<std::uint8_t>(alpha * az + beta * bz + gamma * cz);
+                if (z > z_buffer.get_pixel(x, y)[0]) {
+                    z_buffer.set_pixel(x, y, {z});
+                    frame_buffer.set_pixel(x, y, color);
+                }
+            }
+        }
+    }
+}
+
+void rasterize(const Model &model, TgaImage &frame_buffer, TgaImage &z_buffer) {
+    std::srand(std::time({}));
+    for (int i = 0; i < model.num_faces(); ++i) {
+        TgaColor color;
+        for (int j = 0; j < 3; ++j) color[j] = rand() % 255;
+        triangle_rasterize(model.vertex(i, 0), model.vertex(i, 1), model.vertex(i, 2), frame_buffer, z_buffer, color);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -95,24 +156,14 @@ int main(int argc, char *argv[]) {
     }
 
     TgaImage frame_buffer(width, height, TgaImage::RGB);
+    TgaImage z_buffer(width, height, TgaImage::GRAYSCALE);
 
     Model model(argv[1]);
-
-    for (int i = 0; i < model.num_faces(); ++i) {
-        auto [ax, ay] = viewport_trans(model.vertex(i, 0), width, height);
-        auto [bx, by] = viewport_trans(model.vertex(i, 1), width, height);
-        auto [cx, cy] = viewport_trans(model.vertex(i, 2), width, height);
-
-        line_draw(ax, ay, bx, by, frame_buffer, red);
-        line_draw(bx, by, cx, cy, frame_buffer, red);
-        line_draw(cx, cy, ax, ay, frame_buffer, red);
-
-        frame_buffer.set_pixel(ax, ay, white);
-        frame_buffer.set_pixel(bx, by, white);
-        frame_buffer.set_pixel(cx, cy, white);
-    }
+    
+    rasterize(model, frame_buffer, z_buffer);
 
     frame_buffer.write_tga_file("frame_buffer.tga");
+    z_buffer.write_tga_file("z_buffer.tga");
 
     return 0;
 }
