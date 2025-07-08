@@ -95,6 +95,16 @@ void triangle_rasterize(const Vec3f &p1, const Vec3f &p2, const Vec3f &p3, TgaIm
     auto [bx, by, bz] = viewport_trans(p2, width, height);
     auto [cx, cy, cz] = viewport_trans(p3, width, height);
 
+#ifndef NDEBUG
+    std::cerr << __PRETTY_FUNCTION__ << '\n';
+    Vec3f v0{ax, ay, az};
+    Vec3f v1{bx, by, bz};
+    Vec3f v2{cx, cy, cz};
+    std::cerr << v0 << '\n';
+    std::cerr << v1 << '\n';
+    std::cerr << v2 << '\n';
+#endif
+
     // 背面剔除
     // 背面剔除应该使用世界坐标来做
     // 但是目前渲染条件为: 右手坐标系, 使用的模型局部坐标均在 [-1, 1]^3, 直接拿来当作 NDC 坐标
