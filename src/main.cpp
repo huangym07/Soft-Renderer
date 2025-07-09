@@ -1,13 +1,15 @@
 #include "model.h"
 #include "tga_image.h"
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <ratio>
 #include <string>
 #include <ctime>
 
-constexpr int width = 800;
-constexpr int height = 800;
+constexpr int width = 1024;
+constexpr int height = 1024;
 
 constexpr TgaColor white = {255, 255, 255, 255};
 constexpr TgaColor blue = {255, 0, 0, 255};
@@ -89,39 +91,10 @@ Vec3f viewport_trans(const Vec3f &point, const int width,
     return {(point.x + 1.f) * (width - 1) / 2, (point.y + 1.f) * (height - 1) / 2, (point.z + 1.f) * 255.f / 2};
 }
 
-void triangle_rasterize(const Vec3f &p1, const Vec3f &p2, const Vec3f &p3, TgaImage &frame_buffer, TgaImage &z_buffer, const TgaColor &color) {
-    // 屏幕空间坐标
-    auto [ax, ay, az] = viewport_trans(p1, width, height);
-    auto [bx, by, bz] = viewport_trans(p2, width, height);
-    auto [cx, cy, cz] = viewport_trans(p3, width, height);
-
-#ifndef NDEBUG
-    std::cerr << __PRETTY_FUNCTION__ << '\n';
-    Vec3f v0{ax, ay, az};
-    Vec3f v1{bx, by, bz};
-    Vec3f v2{cx, cy, cz};
-    std::cerr << v0 << '\n';
-    std::cerr << v1 << '\n';
-    std::cerr << v2 << '\n';
-#endif
-
-    // 背面剔除
-    // 背面剔除应该使用世界坐标来做
-    // 但是目前渲染条件为: 右手坐标系, 使用的模型局部坐标均在 [-1, 1]^3, 直接拿来当作 NDC 坐标
-    // 右手坐标系, 如果使用的模型的局部坐标在 [-1, 1]^3, 那么将其直接拿来当作 NDC 坐标，这相当于自动进行了下面操作
-    // 1. 不进行模型变换，局部坐标就是世界坐标
-    // 2. 接着进行了相机在 z 轴某个能看清出模型全貌(就是和模型不重合)的位置, 
-    // x, y, z 轴与世界坐标的 x, y, z 轴相同方向的视图变换
-    // 3. 然后进行了选取合适的长方体进行正交投影变换得到 NDC, 
-    // 并且这个合适的长方体使得模型各点的 NDC 坐标与模型局部坐标相同的正交投影变换。
-    // 所以在目前相机看向 z 轴负方向且使用正交投影的特定条件下，
-    // 视口变换后的屏幕空间背面剔除是可行的，结果与世界坐标剔除等价。
-    // 这是因为正交投影保留了三维空间中 z 轴方向的朝向关系，
-    // 屏幕空间的顶点顺序和法向量分量可直接用于背面判定。
-    // 但需注意，当投影方式或观察方向改变时，仍需在三维坐标空间中执行标准背面剔除。
-
-    // 当前使用的模型按照右手坐标系, 逆时针绕序为正面
-    if (Vec3f{bx - ax, by - ay, 0}.cross({cx - ax, cy - ay, 0}).z < 0) return;
+void triangle_rasterize(const Vec3f &p0, const Vec3f &p1, const Vec3f &p2, TgaImage &frame_buffer, TgaImage &z_buffer, const TgaColor &color) {
+    float ax = p0[0], ay = p0[1], az = p0[2];
+    float bx = p1[0], by = p1[1], bz = p1[2];
+    float cx = p2[0], cy = p2[1], cz = p2[2];
 
     // 包围盒
     int x_min = std::min(std::min(ax, bx), cx);
@@ -131,13 +104,13 @@ void triangle_rasterize(const Vec3f &p1, const Vec3f &p2, const Vec3f &p3, TgaIm
     int y_max = std::max(std::max(ay, by), cy);
     y_max = std::min(y_max, frame_buffer.get_height() - 1); // 同上
 
+// #pragma omp parallel for
     // 遍历包围盒内像素
     for (int x = x_min; x <= x_max; ++x) {
         for (int y = y_min; y <= y_max; ++y) {
             // 计算重心坐标
             auto [alpha, beta, gamma] = barycentric_coordinates(Vec2f{x + 0.5f, y + 0.5f}, Vec2f{ax, ay}, Vec2f{bx, by}, Vec2f{cx, cy});
-            // 退化三角形，停止光栅化
-            if (std::isnan(alpha)) return;
+
             if (beta >= 0 && gamma >= 0 && beta + gamma <= 1) {
                 // 正交投影 可以使用屏幕空间的重心坐标插值 z
                 std::uint8_t z = static_cast<std::uint8_t>(alpha * az + beta * bz + gamma * cz);
@@ -155,7 +128,40 @@ void rasterize(const Model &model, TgaImage &frame_buffer, TgaImage &z_buffer) {
     for (int i = 0; i < model.num_faces(); ++i) {
         TgaColor color;
         for (int j = 0; j < 3; ++j) color[j] = rand() % 255;
-        triangle_rasterize(model.vertex(i, 0), model.vertex(i, 1), model.vertex(i, 2), frame_buffer, z_buffer, color);
+
+        auto p0 = model.vertex(i, 0);
+        auto p1 = model.vertex(i, 1);
+        auto p2 = model.vertex(i, 2);
+
+        // 视口变换
+        // NDC -> 屏幕空间坐标
+        auto [ax, ay, az] = viewport_trans(p0, width, height);
+        auto [bx, by, bz] = viewport_trans(p1, width, height);
+        auto [cx, cy, cz] = viewport_trans(p2, width, height);
+
+        // 背面剔除
+        // 背面剔除应该使用世界坐标来做
+        // 但是目前渲染条件为: 右手坐标系, 使用的模型局部坐标均在 [-1, 1]^3, 直接拿来当作 NDC 坐标
+        // 右手坐标系, 如果使用的模型的局部坐标在 [-1, 1]^3, 那么将其直接拿来当作 NDC 坐标，这相当于自动进行了下面操作
+        // 1. 不进行模型变换，局部坐标就是世界坐标
+        // 2. 接着进行了相机在 z 轴某个能看清出模型全貌(就是和模型不重合)的位置, 
+        // x, y, z 轴与世界坐标的 x, y, z 轴相同方向的视图变换
+        // 3. 然后进行了选取合适的长方体进行正交投影变换得到 NDC, 
+        // 并且这个合适的长方体使得模型各点的 NDC 坐标与模型局部坐标相同的正交投影变换。
+        // 所以在目前相机看向 z 轴负方向且使用正交投影的特定条件下，
+        // 视口变换后的屏幕空间背面剔除是可行的，结果与世界坐标剔除等价。
+        // 这是因为正交投影保留了三维空间中 z 轴方向的朝向关系，
+        // 屏幕空间的顶点顺序和法向量分量可直接用于背面判定。
+        // 但需注意，当投影方式或观察方向改变时，仍需在三维坐标空间中执行标准背面剔除。
+        Vec3f AB{bx - ax, by - ay, 0};
+        Vec3f AC{cx - ax, cy - ay, 0};
+        float z = AB.cross(AC).z;
+        constexpr float epsilon = 1e-6f;
+        // 当前使用的模型按照右手坐标系, 逆时针绕序为正面
+        // 叉积法判断三角形退化 |z| < epsilon 和背面剔除 z < 0 一起做
+        if (z < epsilon) continue;
+
+        triangle_rasterize(Vec3f{ax, ay, az}, Vec3f{bx, by, bz}, Vec3f{cx, cy, cz}, frame_buffer, z_buffer, color);
     }
 }
 
@@ -169,8 +175,12 @@ int main(int argc, char *argv[]) {
     TgaImage z_buffer(width, height, TgaImage::GRAYSCALE);
 
     Model model(argv[1]);
-    
+
+    auto start = std::chrono::high_resolution_clock::now();
     rasterize(model, frame_buffer, z_buffer);
+    auto end = std::chrono::high_resolution_clock::now();
+    float duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cerr << "rasterization time cost: " << duration / 1000 << " ms\n";
 
     frame_buffer.write_tga_file("frame_buffer.tga");
     z_buffer.write_tga_file("z_buffer.tga");

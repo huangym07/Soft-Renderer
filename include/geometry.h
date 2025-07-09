@@ -10,7 +10,17 @@ template <int N, typename T> struct Vec {
     std::array<T, N> data;
     const T &operator[](int index) const { return data[index]; }
     T &operator[](int index) { return data[index]; }
+    T length_squared() const; 
 };
+    
+template<int N, typename T>
+T Vec<N, T>::length_squared() const {
+    T result = 0;
+    for (int i = 0; i < N; ++i) {
+        result += (*this)[i] * (*this)[i];
+    }
+    return result;
+}
 
 template <int N, typename T>
 std::ostream &operator<<(std::ostream &os, const Vec<N, T> &vec) {
@@ -49,6 +59,8 @@ template <typename T> struct Vec<3, T> {
         return {y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z,
                 x * rhs.y - y * rhs.x};
     }
+    // 模长平方
+    T length_squared() const { return x * x + y * y + z * z; }
 };
 
 using Vec3f = Vec<3, float>;
@@ -83,18 +95,8 @@ barycentric_coordinates(const Vec<N, float> &P, const Vec<N, float> &A,
     auto dot01 = v0 * v1;
     auto dot02 = v0 * v2;
 
-    auto denominator = dot11 * dot22 - dot12 * dot12;
+    auto denominator = 1 / (dot11 * dot22 - dot12 * dot12);
 
-    // 检查退化三角形
-    constexpr float epsilon = 1e-6f;
-    if (std::fabs(denominator) < epsilon) {
-        // 返回 NAN 表示退化三角形，求重心坐标失败
-        return {std::numeric_limits<float>::quiet_NaN(),
-                std::numeric_limits<float>::quiet_NaN(),
-                std::numeric_limits<float>::quiet_NaN()};
-    }
-
-    denominator = 1 / denominator;
     float beta = (dot22 * dot01 - dot12 * dot02) * denominator;
     float gamma = (dot11 * dot02 - dot12 * dot01) * denominator;
 
